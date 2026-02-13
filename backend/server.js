@@ -6,7 +6,22 @@ const http = require('http');
 const { Server } = require('socket.io');
 require('dotenv').config();
 const admin = require('firebase-admin');
-const serviceAccount = require('./serviceAccount.json');
+
+// Read ServiceAccount from environment variable (Railway) or file (local)
+let serviceAccount;
+if (process.env.SERVICE_ACCOUNT_JSON) {
+  try {
+    serviceAccount = JSON.parse(process.env.SERVICE_ACCOUNT_JSON);
+    console.log('✅ Using ServiceAccount from environment variable');
+  } catch (e) {
+    console.error('Error parsing SERVICE_ACCOUNT_JSON, falling back to file:', e);
+    serviceAccount = require('./serviceAccount.json');
+  }
+} else {
+  serviceAccount = require('./serviceAccount.json');
+  console.log('✅ Using ServiceAccount from file');
+}
+
 const detectionService = require('./services/detectionService');
 
 admin.initializeApp({
