@@ -8,5 +8,8 @@ cmds = [
   "python3 -m pip install --break-system-packages -r requirements.txt"
 ]
 
+[phases.build]
+cmds = ["echo 'Build phase skipped - all dependencies installed in install phase'"]
+
 [start]
 cmd = "node server.js"
