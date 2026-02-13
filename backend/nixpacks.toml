@@ -4,8 +4,8 @@ nixPkgs = ["nodejs-18_x", "python310"]
 [phases.install]
 cmds = [
   "npm install",
-  "python3 -m ensurepip --upgrade || (curl https://bootstrap.pypa.io/get-pip.py -o get-pip.py && python3 get-pip.py)",
-  "python3 -m pip install -r requirements.txt"
+  "curl https://bootstrap.pypa.io/get-pip.py -o get-pip.py && PIP_BREAK_SYSTEM_PACKAGES=1 python3 get-pip.py",
+  "python3 -m pip install --break-system-packages -r requirements.txt"
 ]
 
 [start]
