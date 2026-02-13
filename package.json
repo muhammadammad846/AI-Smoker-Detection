@@ -1,0 +1,12 @@
+{
+  "name": "cctv-smoking-detection-root",
+  "version": "1.0.0",
+  "description": "Root package.json for Railway deployment",
+  "scripts": {
+    "start": "cd backend && node server.js",
+    "build": "cd backend && npm install"
+  },
+  "engines": {
+    "node": "18.x"
+  }
+}
