@@ -4,6 +4,19 @@ const path = require('path');
 const { v4: uuidv4 } = require('uuid');
 const admin = require('firebase-admin');
 
+const CHALLAN_CONF_THRESHOLD = parseFloat(process.env.CHALLAN_CONF_THRESHOLD || '0.6', 10);
+
+function isSmokingLabel(label) {
+  if (!label || typeof label !== 'string') return false;
+  const n = label.toLowerCase();
+  return ['smoker', 'smoking', 'cigarette', 'cigar', 'smoke'].some(k => n.includes(k));
+}
+
+function smokingConfidenceOk(detection) {
+  const conf = detection && (detection.confidence != null ? detection.confidence : 1);
+  return typeof conf === 'number' && !Number.isNaN(conf) && conf >= CHALLAN_CONF_THRESHOLD;
+}
+
 class DetectionService {
   constructor() {
     this.activeDetections = {};     // Tracks active cameras
@@ -245,8 +258,8 @@ class DetectionService {
 
       await db.collection("detections").add(detectionData);
 
-      // Auto-generate challan if student is identified and smoking detected
-      if (matchedStudent && (detection.label === 'smoker' || detection.label === 'smoking' || detection.label === 'cigarette')) {
+      // Auto-generate challan only when confidence is high enough (fewer false positives)
+      if (matchedStudent && isSmokingLabel(detection.label) && smokingConfidenceOk(detection)) {
         try {
           await db.collection("challans").add({
             studentId: matchedStudent.id,
@@ -438,14 +451,11 @@ class DetectionService {
 
               await db.collection("detections").add(detectionData);
 
-              // Auto-generate challan if student identified and smoking detected
-              const hasSmoking = result.detections.some(d => 
-                d.label?.toLowerCase().includes('smoker') || 
-                d.label?.toLowerCase().includes('smoking') ||
-                d.label?.toLowerCase().includes('cigarette')
+              const hasSmokingHighConf = result.detections.some(d =>
+                isSmokingLabel(d.label) && smokingConfidenceOk(d)
               );
 
-              if (matchedStudent && hasSmoking) {
+              if (matchedStudent && hasSmokingHighConf) {
                 try {
                   await db.collection("challans").add({
                     studentId: matchedStudent.id,

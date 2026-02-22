@@ -31,9 +31,17 @@ admin.initializeApp({
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server, { cors: { origin: "*", methods: ["GET", "POST"] } });
 
-app.use(cors());
+// Production: restrict CORS to frontend origin(s)
+const corsOrigin = process.env.CORS_ORIGIN || (process.env.NODE_ENV === 'production' ? process.env.FRONTEND_URL : undefined);
+const io = new Server(server, {
+  cors: {
+    origin: corsOrigin || '*',
+    methods: ['GET', 'POST'],
+  },
+});
+
+app.use(cors(corsOrigin ? { origin: corsOrigin.split(',').map(s => s.trim()) } : {}));
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
@@ -161,13 +169,47 @@ app.get('/api/challans', async (req, res) => {
   }
 });
 
+// Validation helpers
+function validateChallanCreate(body) {
+  const { studentId, amount } = body || {};
+  if (!studentId || typeof studentId !== 'string' || !studentId.trim()) {
+    return { error: 'studentId is required' };
+  }
+  const num = Number(amount);
+  if (amount === undefined || amount === null || Number.isNaN(num) || num <= 0) {
+    return { error: 'amount must be a positive number' };
+  }
+  const status = body.status;
+  if (status && !['pending', 'paid', 'cancelled'].includes(status)) {
+    return { error: 'status must be pending, paid, or cancelled' };
+  }
+  return null;
+}
+
+function validateChallanUpdate(body) {
+  if (body.amount !== undefined) {
+    const num = Number(body.amount);
+    if (Number.isNaN(num) || num < 0) return { error: 'amount must be a non-negative number' };
+  }
+  if (body.status && !['pending', 'paid', 'cancelled'].includes(body.status)) {
+    return { error: 'status must be pending, paid, or cancelled' };
+  }
+  return null;
+}
+
 app.post('/api/challans', async (req, res) => {
+  const validation = validateChallanCreate(req.body);
+  if (validation) return res.status(400).json({ error: validation.error });
+
   try {
     const db = admin.firestore();
+    const { studentId, amount, reason, status } = req.body;
     const challanData = {
-      ...req.body,
+      studentId: String(studentId).trim(),
+      amount: Number(amount),
+      reason: reason != null ? String(reason) : '',
+      status: status || 'pending',
       createdAt: new Date().toISOString(),
-      status: req.body.status || 'pending',
     };
 
     const docRef = await db.collection('challans').add(challanData);
@@ -179,16 +221,20 @@ app.post('/api/challans', async (req, res) => {
 });
 
 app.put('/api/challans/:id', async (req, res) => {
+  const validation = validateChallanUpdate(req.body);
+  if (validation) return res.status(400).json({ error: validation.error });
+
   try {
     const { id } = req.params;
     const db = admin.firestore();
+    const allowed = ['status', 'amount', 'reason'];
+    const updates = { updatedAt: new Date().toISOString() };
+    allowed.forEach(k => { if (req.body[k] !== undefined) updates[k] = req.body[k]; });
+    if (updates.amount !== undefined) updates.amount = Number(updates.amount);
 
-    await db.collection('challans').doc(id).update({
-      ...req.body,
-      updatedAt: new Date().toISOString(),
-    });
-
+    await db.collection('challans').doc(id).update(updates);
     const doc = await db.collection('challans').doc(id).get();
+    if (!doc.exists) return res.status(404).json({ error: 'Challan not found' });
     res.json({ id: doc.id, ...doc.data() });
   } catch (error) {
     console.error('Error updating challan:', error);

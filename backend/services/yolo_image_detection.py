@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 YOLOv8 Image Detection Script
-Detects smoking and faces in a single image and generates annotated report
+Detects smoking and faces in a single image. Uses detection_config for thresholds.
 """
 
 import sys
@@ -11,6 +11,15 @@ from ultralytics import YOLO
 import os
 import uuid
 from datetime import datetime
+
+try:
+    from detection_config import DETECTION_CONF_THRESHOLD, is_smoking_class, is_relevant_class
+except ImportError:
+    DETECTION_CONF_THRESHOLD = 0.55
+    def is_smoking_class(n):
+        return n and any(k in n.lower() for k in ("smoker", "smoking", "cigarette", "cigar", "smoke"))
+    def is_relevant_class(n):
+        return n and (is_smoking_class(n) or any(k in n.lower() for k in ("person", "face", "human")))
 
 # --------------------------
 # Read arguments
@@ -52,8 +61,7 @@ def detect_smoking_image(image_path):
     if image is None:
         return {"error": "Could not read image", "detections": []}
 
-    # Run YOLO detection
-    results = model(image, conf=0.5)
+    results = model(image, conf=DETECTION_CONF_THRESHOLD)
     detections = []
 
     for r in results:
@@ -62,19 +70,18 @@ def detect_smoking_image(image_path):
                                      r.boxes.cls.cpu().numpy()):
             x1, y1, x2, y2 = map(int, box)
             class_name = model.names[int(cls_id)]
+            confidence = float(conf)
 
-            # Check for smoking-related detections (smoker, cigarette, smoking, person)
-            if class_name.lower() not in ["smoker", "smoking", "cigarette", "face", "person"]:
+            if not is_relevant_class(class_name) or confidence < DETECTION_CONF_THRESHOLD:
                 continue
 
             detections.append({
                 "label": class_name,
-                "confidence": float(conf),
+                "confidence": confidence,
                 "bbox": [x1, y1, x2, y2]
             })
 
-            # Draw bounding boxes (red for smoking, green for others)
-            color = (0, 0, 255) if class_name.lower() in ["smoker", "smoking", "cigarette"] else (0, 255, 0)
+            color = (0, 0, 255) if is_smoking_class(class_name) else (0, 255, 0)
             cv2.rectangle(image, (x1, y1), (x2, y2), color, 2)
             cv2.putText(image, f"{class_name} {conf:.2f}", (x1, y1 - 5),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)

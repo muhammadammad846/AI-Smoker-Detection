@@ -61,9 +61,29 @@ except Exception as e:
 # --------------------------
 # Match with student photos
 # --------------------------
+try:
+    from detection_config import FACE_MATCH_THRESHOLD
+except ImportError:
+    import os
+    FACE_MATCH_THRESHOLD = float(os.environ.get("FACE_MATCH_THRESHOLD", "0.55"))
+
+# Skip matching if detected face is too small (unreliable)
+MIN_FACE_PIXELS = 60 * 60
+try:
+    h, w = detected_image.shape[:2]
+    if w * h < MIN_FACE_PIXELS:
+        print(json.dumps({
+            "matchedStudent": None,
+            "message": "Face image too small for reliable matching",
+            "timestamp": datetime.utcnow().isoformat()
+        }))
+        sys.stdout.flush()
+        sys.exit(0)
+except Exception:
+    pass
+
 best_match = None
 best_distance = float('inf')
-MATCH_THRESHOLD = 0.6  # Lower is more strict (0.0 = identical, 1.0 = very different)
 
 for student in students:
     if not student.get('photoUrl'):
@@ -96,7 +116,7 @@ for student in students:
         # Calculate face distance
         distance = face_recognition.face_distance([detected_encoding], student_encoding)[0]
         
-        if distance < best_distance and distance < MATCH_THRESHOLD:
+        if distance < best_distance and distance < FACE_MATCH_THRESHOLD:
             best_distance = distance
             best_match = {
                 "id": student.get('id'),

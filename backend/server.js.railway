@@ -1,0 +1,32 @@
+// Railway-compatible server.js
+// This version reads ServiceAccount from environment variable
+
+const express = require('express');
+const cors = require('cors');
+const fs = require('fs');
+const path = require('path');
+const http = require('http');
+const { Server } = require('socket.io');
+require('dotenv').config();
+const admin = require('firebase-admin');
+
+// Read ServiceAccount from environment variable (Railway) or file (local)
+let serviceAccount;
+if (process.env.SERVICE_ACCOUNT_JSON) {
+  try {
+    serviceAccount = JSON.parse(process.env.SERVICE_ACCOUNT_JSON);
+  } catch (e) {
+    console.error('Error parsing SERVICE_ACCOUNT_JSON:', e);
+    // Fallback to file
+    serviceAccount = require('./serviceAccount.json');
+  }
+} else {
+  serviceAccount = require('./serviceAccount.json');
+}
+
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount),
+  storageBucket: process.env.FIREBASE_STORAGE_BUCKET,
+});
+
+// ... rest of server.js remains the same
