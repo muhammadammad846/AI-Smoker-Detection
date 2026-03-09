@@ -29,7 +29,15 @@ export const apiRequest = async (endpoint, options = {}) => {
     }
     return await response.text();
   } catch (error) {
-    console.error('API Error:', error);
+    const url = `${API_BASE_URL}${endpoint}`;
+    console.error('API Error:', error.message || error);
+    if (error.message === 'Network request failed' || error.name === 'TypeError') {
+      console.warn(
+        '[Network] Request failed to',
+        url,
+        '— check backend is running and DEV_API in src/config/api.js matches your machine (use 10.0.2.2:3000 for Android emulator).'
+      );
+    }
     if (error.message) {
       throw error;
     }

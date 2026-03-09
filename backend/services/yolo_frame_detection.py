@@ -132,8 +132,8 @@ try:
                             pad = int(0.1 * min(fw, fh))
                             face_x1 = max(0, face_x - pad)
                             face_y1 = max(0, face_y - pad)
-                            face_x2 = min(frame.shape[1], face_x + face_w + pad)
-                            face_y2 = min(frame.shape[0], face_y + face_h + pad)
+                            face_x2 = min(frame.shape[1], face_x + fw + pad)
+                            face_y2 = min(frame.shape[0], face_y + fh + pad)
                             face_img = frame[face_y1:face_y2, face_x1:face_x2]
                             if face_img.size == 0:
                                 continue

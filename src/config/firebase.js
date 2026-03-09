@@ -4,7 +4,7 @@ import { getFirestore } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
 import ReactNativeAsyncStorage from '@react-native-async-storage/async-storage';
 
-// Firebase configuration
+// Firebase config — must match backend ServiceAccount project (cctv-smoking-detection)
 const firebaseConfig = {
   apiKey: "AIzaSyBVIqCrQPLf3lqTUtVW7Vk5tcEuXGnNqjE",
   authDomain: "cctv-smoking-detection.firebaseapp.com",
@@ -39,6 +39,7 @@ try {
   app = null;
   auth = null;
   db = null;
+  storage = null;
 }
 
 export { auth, db, storage };

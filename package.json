@@ -10,7 +10,8 @@
     "backend": "cd backend && npm start",
     "backend:dev": "cd backend && npm run dev",
     "railway:start": "cd backend && node server.js",
-    "railway:build": "cd backend && npm install"
+    "railway:build": "cd backend && npm install",
+    "verify-launch": "node verify-launch.js"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",

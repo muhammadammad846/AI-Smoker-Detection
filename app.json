@@ -25,6 +25,7 @@
       },
       "package": "com.cctv.smokingdetection",
       "versionCode": 1,
+      "usesCleartextTraffic": true,
       "permissions": [
         "CAMERA",
         "RECORD_AUDIO",

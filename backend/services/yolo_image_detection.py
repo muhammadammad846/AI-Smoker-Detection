@@ -47,6 +47,7 @@ if not os.path.exists(image_path):
 # --------------------------
 # Load YOLO model
 # --------------------------
+os.environ["YOLO_VERBOSE"] = "false"
 model = YOLO(model_path)
 
 # --------------------------
@@ -61,7 +62,7 @@ def detect_smoking_image(image_path):
     if image is None:
         return {"error": "Could not read image", "detections": []}
 
-    results = model(image, conf=DETECTION_CONF_THRESHOLD)
+    results = model(image, conf=DETECTION_CONF_THRESHOLD, verbose=False)
     detections = []
 
     for r in results:

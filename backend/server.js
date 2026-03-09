@@ -24,9 +24,11 @@ if (process.env.SERVICE_ACCOUNT_JSON) {
 
 const detectionService = require('./services/detectionService');
 
+// Use env bucket or derive from ServiceAccount so it matches frontend (same project)
+const storageBucket = process.env.FIREBASE_STORAGE_BUCKET || `${serviceAccount.project_id}.firebasestorage.app`;
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
-  storageBucket: process.env.FIREBASE_STORAGE_BUCKET,
+  storageBucket,
 });
 
 const app = express();
@@ -336,7 +338,7 @@ app.post('/api/users', authenticateAdmin, async (req, res) => {
     // Handle photo upload if provided via Base64
     if (photoBase64 && role === 'student') {
       try {
-        const bucket = admin.storage().bucket(process.env.FIREBASE_STORAGE_BUCKET || 'cctv-smoking-detection.firebasestorage.app');
+        const bucket = admin.storage().bucket();
         const filename = `student-photos/${email}_${Date.now()}.jpg`;
         const file = bucket.file(filename);
 

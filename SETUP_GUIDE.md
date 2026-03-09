@@ -108,39 +108,45 @@ NODE_ENV=production
 ### Step 6: Update API URLs
 
 **Find your computer's IP address:**
-- Windows: Run `ipconfig` in CMD, look for IPv4 Address
+- Windows: Run `ipconfig` in CMD, look for IPv4 Address (e.g. 192.168.1.5)
 - Mac/Linux: Run `ifconfig` or `ip addr`
 
-**Update these files:**
+**Edit `src/config/api.js`** and set `DEV_API` and `DEV_SOCKET`:
 
-1. **`src/services/apiService.js`** (line 5):
+- **Physical device (same Wi‑Fi as your PC):** Use your computer's LAN IP, e.g. `http://192.168.1.5:3000/api`
+- **Android emulator:** Use `http://10.0.2.2:3000/api` (10.0.2.2 is the host machine from the emulator)
+- **iOS simulator:** `http://localhost:3000/api` often works, or use your machine's IP
+
+Example:
 ```javascript
-const API_BASE_URL = __DEV__ 
-  ? 'http://YOUR_IP:3000/api'  // Replace YOUR_IP
-  : 'https://your-production-url.com/api';
+const DEV_API = 'http://192.168.18.56:3000/api';   // Replace with your IP or 10.0.2.2 for Android emulator
+const DEV_SOCKET = 'http://192.168.18.56:3000';
 ```
 
-2. **`src/services/socketService.js`** (line 4):
-```javascript
-const SOCKET_URL = __DEV__ 
-  ? 'http://YOUR_IP:3000'  // Replace YOUR_IP
-  : 'https://your-production-url.com';
+### Step 7: Create Admin User in Firebase
+
+**Option A – Script (recommended)**  
+From the project root, run (uses Firebase Admin SDK; no Firestore rules change needed):
+
+```bash
+cd backend
+npm run create-admin -- admin@example.com YourPassword "Admin Name"
 ```
 
-### Step 7: Create Admin User in Firestore
+Or with env vars:
 
-1. Create a Firebase Auth user with email/password
-2. In Firestore, create a document in `users` collection:
-   - Document ID: Your Firebase Auth UID
-   - Fields:
-     ```json
-     {
-       "email": "admin@example.com",
-       "name": "Admin User",
-       "role": "admin",
-       "createdAt": "2024-01-01T00:00:00Z"
-     }
-     ```
+```bash
+cd backend
+set ADMIN_EMAIL=admin@example.com
+set ADMIN_PASSWORD=YourPassword
+set ADMIN_NAME=Admin Name
+npm run create-admin
+```
+
+**Option B – Manual**  
+1. In [Firebase Console](https://console.firebase.google.com) → Authentication → Add user (email/password).  
+2. Copy the user’s UID.  
+3. In Firestore, create a document in the `users` collection with that UID as the document ID and fields: `email`, `name`, `role` (value `"admin"`), `createdAt`.
 
 ## 🧪 Testing the System
 
@@ -189,6 +195,17 @@ Then press:
 5. Check if challan is auto-generated
 
 ## 🔧 Troubleshooting
+
+### Issue: "Network request failed" / "Error getting live detections"
+
+1. **Backend must be running** on your machine: `cd backend && npm start` (port 3000).
+2. **Correct URL in the app:** Edit `src/config/api.js`:
+   - **Physical device:** Use your PC's IP (same Wi‑Fi as the device). Run `ipconfig` (Windows) or `ifconfig` (Mac/Linux) to get it.
+   - **Android emulator:** Use `http://10.0.2.2:3000/api` and `http://10.0.2.2:3000` for `DEV_SOCKET`.
+3. **Firewall:** Allow Node/backend on port 3000 (Windows Firewall or antivirus).
+4. **Restart the app** after changing `src/config/api.js` (and rebuild if using a dev build).
+
+On startup in dev you should see in the console: `[API config] API_BASE_URL: http://...` — confirm it matches where your backend is running.
 
 ### Issue: "Socket.io-client" not found
 **Solution:**

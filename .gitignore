@@ -40,6 +40,7 @@ Thumbs.db
 # Backend
 backend/uploads/
 backend/models/*.pt
+!backend/models/best.pt
 backend/node_modules/
 backend/.env
 backend/ServiceAccount.json

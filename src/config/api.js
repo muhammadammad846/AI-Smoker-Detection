@@ -1,12 +1,17 @@
 /**
  * API and Socket URLs for backend.
  * Production: Set EXPO_PUBLIC_API_URL and EXPO_PUBLIC_SOCKET_URL in EAS Build env or app.config.js extra.
- * Development: Uses __DEV__ fallback; edit DEV_API / DEV_SOCKET below if your machine IP differs.
+ * Development: When no env is set, uses host address so emulator/simulator can reach backend on same machine.
+ * Physical device: set EXPO_PUBLIC_API_URL to your computer's LAN IP (e.g. http://192.168.1.5:3000/api).
  */
 import Constants from 'expo-constants';
+import { Platform } from 'react-native';
 
-const DEV_API = 'http://192.168.18.56:3000/api';
-const DEV_SOCKET = 'http://192.168.18.56:3000';
+const PORT = 3000;
+// Android emulator: 10.0.2.2 is the host machine. iOS simulator: 127.0.0.1 is localhost.
+const DEV_HOST = Platform.OS === 'android' ? '10.0.2.2' : '127.0.0.1';
+const DEV_API = `http://${DEV_HOST}:${PORT}/api`;
+const DEV_SOCKET = `http://${DEV_HOST}:${PORT}`;
 const PROD_API_PLACEHOLDER = 'https://your-production-url.com/api';
 const PROD_SOCKET_PLACEHOLDER = 'https://your-production-url.com';
 
@@ -30,3 +35,11 @@ function getSocketUrl() {
 
 export const API_BASE_URL = getApiBaseUrl();
 export const SOCKET_URL = getSocketUrl();
+
+if (__DEV__ && typeof global !== 'undefined') {
+  const url = API_BASE_URL || '(none)';
+  console.log('[API config] API_BASE_URL:', url);
+  if (!url || url === '(none)') {
+    console.warn('[API config] No API URL set. Edit src/config/api.js DEV_API or set EXPO_PUBLIC_API_URL.');
+  }
+}
