@@ -2,7 +2,14 @@ import { collection, addDoc, getDocs, doc, updateDoc, deleteDoc, getDoc, query, 
 import { ref, uploadString, getDownloadURL } from 'firebase/storage';
 import { db, storage } from '../config/firebase';
 import { createUser } from './authService';
-import * as FileSystem from 'expo-file-system/legacy';
+
+// Safe FileSystem import for environments where it might be missing
+let FileSystem = null;
+try {
+  FileSystem = require('expo-file-system/legacy');
+} catch (e) {
+  console.warn('expo-file-system/legacy not available. Photo uploads will be disabled.');
+}
 
 export const getUsers = async (role = null) => {
   try {
@@ -19,7 +26,7 @@ export const getUsers = async (role = null) => {
 
     return users;
   } catch (error) {
-    throw error;
+    console.error('getUsers error:', error);
     return [];
   }
 };
@@ -32,7 +39,7 @@ export const addUser = async (email, password, userData, authToken = null) => {
 
       // If student and has photoUri, convert to base64 for backend upload
       let photoBase64 = null;
-      if (userData.role === 'student' && userData.photoUri) {
+      if (userData.role === 'student' && userData.photoUri && FileSystem) {
         try {
           photoBase64 = await FileSystem.readAsStringAsync(userData.photoUri, {
             encoding: 'base64',
@@ -74,23 +81,45 @@ export const getUserById = async (userId) => {
 
 export const updateUser = async (userId, updates) => {
   try {
-    await updateDoc(doc(db, 'users', userId), updates);
+    const { updateUserAPI } = require('./apiService');
+
+    // Check if we need to convert photoUri to base64 for backend upload
+    if (updates.photoUri && FileSystem) {
+      try {
+        updates.photoBase64 = await FileSystem.readAsStringAsync(updates.photoUri, {
+          encoding: 'base64',
+        });
+        delete updates.photoUri;
+      } catch (err) {
+        console.error('Error reading photo for update:', err);
+      }
+    }
+
+    const result = await updateUserAPI(userId, updates);
+    return result;
   } catch (error) {
-    throw error;
+    throw new Error(error.message || 'Failed to update user');
   }
 };
 
 export const deleteUser = async (userId) => {
   try {
-    await deleteDoc(doc(db, 'users', userId));
+    const { deleteUserAPI } = require('./apiService');
+    try {
+      await deleteUserAPI(userId);
+    } catch (apiErr) {
+      console.warn('Backend delete failed, falling back to direct Firestore deletion:', apiErr);
+      await deleteDoc(doc(db, 'users', userId));
+    }
   } catch (error) {
-    throw error;
+    throw new Error(error.message || 'Failed to delete user');
   }
 };
 
 export const uploadStudentPhoto = async (imageUri, email) => {
-  // We now do this via backend upload in addUser.
-  // This function now just returns the base64 string for compatibility.
+  if (!FileSystem) {
+    throw new Error('Photo upload unavailable: FileSystem missing');
+  }
   try {
     return await FileSystem.readAsStringAsync(imageUri, {
       encoding: 'base64',
@@ -100,11 +129,3 @@ export const uploadStudentPhoto = async (imageUri, email) => {
     throw error;
   }
 };
-
-
-
-
-
-
-
-

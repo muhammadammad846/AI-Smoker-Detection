@@ -9,7 +9,7 @@ const CHALLAN_CONF_THRESHOLD = parseFloat(process.env.CHALLAN_CONF_THRESHOLD || 
 function isSmokingLabel(label) {
   if (!label || typeof label !== 'string') return false;
   const n = label.toLowerCase();
-  return ['smoker', 'smoking', 'cigarette', 'cigar', 'smoke'].some(k => n.includes(k));
+  return ['smoker', 'smoking', 'cigarette', 'cigar', 'smoke', 'cig', 'smk', 'vape', 'tobacco'].some(k => n.includes(k));
 }
 
 function smokingConfidenceOk(detection) {
@@ -25,9 +25,8 @@ class DetectionService {
 
   /**
    * START LIVE DETECTION
-   * @param {string} cameraId
-   * @param {SocketIO.Server} io
-   * @param {string} cameraUrl - "0", "1", "http://...", "rtsp://..."
+   * For mobile/guard app cameras, frames are sent via socket; do not spawn a live Python process.
+   * For fixed cameras (RTSP/URL), spawn yolo_live_detection.py.
    */
   async startDetection(cameraId, io, cameraUrl = null) {
     if (this.activeDetections[cameraId]?.isActive) {
@@ -35,10 +34,16 @@ class DetectionService {
       return;
     }
 
+    const isAppCamera = /mobile-cam|guard-cam/i.test(cameraId || '');
     this.activeDetections[cameraId] = {
       isActive: true,
       startTime: new Date().toISOString(),
     };
+
+    if (isAppCamera) {
+      console.log(`[${cameraId}] App camera: detection active (frames via socket)`);
+      return;
+    }
 
     const pythonScript = path.join(__dirname, 'yolo_live_detection.py');
     const modelPath = path.resolve(__dirname, '../models/best.pt');
@@ -53,9 +58,20 @@ class DetectionService {
     // Default to camera ID if no URL provided
     const cameraSource = cameraUrl || cameraId;
     const args = [pythonScript, cameraId, cameraSource, modelPath];
-    
-    // Use python3 if available, fallback to python
-    const pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
+
+    // Use venv python if available, fallback to python310.exe, then system python
+    let pythonCmd = 'python3';
+    if (process.platform === 'win32') {
+      const venvPath = path.join(__dirname, '../venv/Scripts/python.exe');
+      const bundledPath = path.join(__dirname, '../python310.exe');
+      if (fs.existsSync(venvPath)) {
+        pythonCmd = venvPath;
+      } else if (fs.existsSync(bundledPath)) {
+        pythonCmd = bundledPath;
+      } else {
+        pythonCmd = 'python';
+      }
+    }
     const pyProcess = spawn(pythonCmd, args);
 
     this.pythonProcesses[cameraId] = pyProcess;
@@ -132,7 +148,7 @@ class DetectionService {
       const studentsSnapshot = await db.collection('users')
         .where('role', '==', 'student')
         .get();
-      
+
       const students = [];
       studentsSnapshot.forEach(doc => {
         const data = doc.data();
@@ -156,9 +172,20 @@ class DetectionService {
       const studentsJson = JSON.stringify(students);
 
       return new Promise((resolve, reject) => {
-        const pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
+        let pythonCmd = 'python3';
+        if (process.platform === 'win32') {
+          const venvPath = path.join(__dirname, '../venv/Scripts/python.exe');
+          const bundledPath = path.join(__dirname, '../python310.exe');
+          if (fs.existsSync(venvPath)) {
+            pythonCmd = venvPath;
+          } else if (fs.existsSync(bundledPath)) {
+            pythonCmd = bundledPath;
+          } else {
+            pythonCmd = 'python';
+          }
+        }
         const proc = spawn(pythonCmd, [pythonScript, faceImagePath, studentsJson]);
-        
+
         let output = '';
         let errorOutput = '';
 
@@ -201,36 +228,49 @@ class DetectionService {
    * Save image to Firebase Storage, metadata to Firestore, emit via Socket.io
    * Match faces with students and auto-generate challans
    */
-  async handleDetection(detection, cameraId, io) {
-    if (!detection || !detection.detected) {
+  async handleDetection(result, cameraId, io) {
+    if (!result || !result.detected) {
       return;
     }
 
+    const detections = result.detections || [result]; // Support both old single-det and new grouped format
     let imageUrl = null;
     let matchedStudent = null;
 
-    // Save IMAGE to Firebase Storage
-    if (detection.report_image && fs.existsSync(detection.report_image)) {
+    // Save proof image to Firebase Storage
+    const reportPath = result.report_image || result.report_image;
+    if (reportPath && fs.existsSync(reportPath)) {
       try {
         const bucket = admin.storage().bucket();
-        const buffer = fs.readFileSync(detection.report_image);
+        const buffer = fs.readFileSync(reportPath);
         const filename = `detections/${cameraId}_${uuidv4()}.jpg`;
         const file = bucket.file(filename);
         await file.save(buffer, { contentType: "image/jpeg" });
         imageUrl = `https://storage.googleapis.com/${bucket.name}/${filename}`;
-        detection.imageUrl = imageUrl;
+        result.imageUrl = imageUrl;
 
-        // Try to match face with student
-        if (detection.label === 'face' || detection.label === 'smoker') {
-          matchedStudent = await this.matchFaceWithStudent(detection.report_image);
-          if (matchedStudent) {
-            detection.matchedStudent = matchedStudent;
-            console.log(`[${cameraId}] Matched student: ${matchedStudent.name} (${matchedStudent.studentId})`);
+        // Try to match face with student IF smoking was detected in this frame
+        const hasSmoking = detections.some(d => isSmokingLabel(d.label));
+
+        if (hasSmoking) {
+          // If we have specific face crops (new format)
+          if (result.face_images && result.face_images.length > 0) {
+            for (const face of result.face_images) {
+              if (fs.existsSync(face.path)) {
+                matchedStudent = await this.matchFaceWithStudent(face.path);
+                fs.unlink(face.path, () => { }); // Clean up face crop
+                if (matchedStudent) break;
+              }
+            }
+          }
+          // Fallback to matching from the main report image (old format or backup)
+          if (!matchedStudent && (result.label === 'face' || result.label === 'smoker')) {
+            matchedStudent = await this.matchFaceWithStudent(reportPath);
           }
         }
 
-        // Remove local temp file
-        fs.unlink(detection.report_image, (err) => {
+        // Remove local report file
+        fs.unlink(reportPath, (err) => {
           if (err) console.error(`[${cameraId}] Failed to delete temp image:`, err);
         });
       } catch (err) {
@@ -242,10 +282,12 @@ class DetectionService {
     try {
       const db = admin.firestore();
       const detectionData = {
-        ...detection,
         cameraId,
-        timestamp: new Date().toISOString(),
-        imageUrl,
+        timestamp: result.timestamp || new Date().toISOString(),
+        imageUrl: imageUrl || null,
+        detectionImageUrl: imageUrl || null,
+        detections: detections.map(d => ({ label: d.label, confidence: d.confidence, bbox: d.bbox })),
+        detected: true,
       };
 
       if (matchedStudent) {
@@ -256,21 +298,24 @@ class DetectionService {
         detectionData.matchConfidence = matchedStudent.confidence;
       }
 
-      await db.collection("detections").add(detectionData);
+      const docRef = await db.collection("detections").add(detectionData);
+      const detectionId = docRef.id;
 
-      // Auto-generate challan only when confidence is high enough (fewer false positives)
-      if (matchedStudent && isSmokingLabel(detection.label) && smokingConfidenceOk(detection)) {
+      // Auto-generate challan
+      const smokingDet = detections.find(d => isSmokingLabel(d.label) && smokingConfidenceOk(d));
+      if (matchedStudent && smokingDet) {
         try {
           await db.collection("challans").add({
             studentId: matchedStudent.id,
             studentName: matchedStudent.name,
             studentEmail: matchedStudent.email,
-            amount: 500, // Default fine amount
+            amount: 500,
             status: 'pending',
-            description: `Smoking detected via AI camera system`,
-            location: detection.location || 'Campus',
-            detectionId: detection.id || null,
+            description: 'Smoking detected via AI camera system',
+            location: result.location || 'Campus',
+            detectionId,
             detectionImageUrl: imageUrl,
+            imageUrl: imageUrl,
             createdAt: new Date().toISOString(),
             autoGenerated: true,
           });
@@ -285,7 +330,7 @@ class DetectionService {
 
     // Emit via Socket.io
     if (io) {
-      io.emit("detection", { cameraId, ...detection, matchedStudent });
+      io.emit("detection", { cameraId, ...result, detections, matchedStudent });
     }
   }
 
@@ -304,7 +349,18 @@ class DetectionService {
     }
 
     return new Promise((resolve, reject) => {
-      const pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
+      let pythonCmd = 'python3';
+      if (process.platform === 'win32') {
+        const venvPath = path.join(__dirname, '../venv/Scripts/python.exe');
+        const bundledPath = path.join(__dirname, '../python310.exe');
+        if (fs.existsSync(venvPath)) {
+          pythonCmd = venvPath;
+        } else if (fs.existsSync(bundledPath)) {
+          pythonCmd = bundledPath;
+        } else {
+          pythonCmd = 'python';
+        }
+      }
       const pyProcess = spawn(pythonCmd, [pythonScript, imagePath, modelPath]);
       let output = "";
       let errorOutput = "";
@@ -352,7 +408,18 @@ class DetectionService {
     }
 
     return new Promise((resolve, reject) => {
-      const pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
+      let pythonCmd = 'python3';
+      if (process.platform === 'win32') {
+        const venvPath = path.join(__dirname, '../venv/Scripts/python.exe');
+        const bundledPath = path.join(__dirname, '../python310.exe');
+        if (fs.existsSync(venvPath)) {
+          pythonCmd = venvPath;
+        } else if (fs.existsSync(bundledPath)) {
+          pythonCmd = bundledPath;
+        } else {
+          pythonCmd = 'python';
+        }
+      }
       const proc = spawn(pythonCmd, [pythonScript, modelPath]);
 
       let output = '';
@@ -375,9 +442,21 @@ class DetectionService {
 
         try {
           const result = JSON.parse(output);
-          
-          // Save snapshot if detected
-          if (result.detections?.length > 0 && result.snapshot) {
+
+          if (result.modelClasses && result.modelClasses.length > 0 && process.env.NODE_ENV !== 'production') {
+            console.log(`[${cameraId}] Model classes: ${result.modelClasses.join(', ')}`);
+          }
+          if (result.detections && result.detections.length > 0) {
+            const labels = result.detections.map(d => d.label).filter(Boolean);
+            console.log(`[${cameraId}] Detections (${result.detections.length}): ${labels.join(', ')}`);
+          }
+
+          const hasSmoking = result.detections?.some(d =>
+            isSmokingLabel(d.label)
+          );
+
+          // Save snapshot only when smoking is detected (image of smoker)
+          if (hasSmoking && result.snapshot) {
             try {
               const bucket = admin.storage().bucket();
               const fileName = `detections/${cameraId}_${uuidv4()}.jpg`;
@@ -389,13 +468,8 @@ class DetectionService {
             }
           }
 
-          // Match faces and identify students
+          // Match faces and identify students (only when smoking detected)
           let matchedStudent = null;
-          const hasSmoking = result.detections?.some(d => 
-            d.label?.toLowerCase().includes('smoker') || 
-            d.label?.toLowerCase().includes('smoking') ||
-            d.label?.toLowerCase().includes('cigarette')
-          );
 
           if (hasSmoking && result.faceImages && result.faceImages.length > 0) {
             try {
@@ -412,12 +486,12 @@ class DetectionService {
                   const tempPath = path.join(tempDir, `face_${uuidv4()}.jpg`);
                   const imageBuffer = Buffer.from(faceImage.image, 'base64');
                   fs.writeFileSync(tempPath, imageBuffer);
-                  
+
                   matchedStudent = await this.matchFaceWithStudent(tempPath);
-                  
+
                   // Clean up temp file
-                  fs.unlink(tempPath, () => {});
-                  
+                  fs.unlink(tempPath, () => { });
+
                   if (matchedStudent) {
                     result.matchedStudent = matchedStudent;
                     console.log(`[${cameraId}] Matched student: ${matchedStudent.name} (confidence: ${matchedStudent.confidence})`);
@@ -430,57 +504,66 @@ class DetectionService {
             }
           }
 
-          // Save to Firestore
-          if (result.detections?.length > 0) {
-            try {
-              const db = admin.firestore();
-              const detectionData = {
-                cameraId,
-                detections: result.detections,
-                timestamp: new Date().toISOString(),
-                imageUrl: result.imageUrl,
-              };
+          // Save to Firestore only when smoking is detected AND we have proof image (so every record has proof)
+          if (hasSmoking) {
+            const proofUrl = result.imageUrl || null;
+            if (proofUrl) {
+              try {
+                const db = admin.firestore();
+                const detectionData = {
+                  cameraId,
+                  detections: result.detections,
+                  timestamp: new Date().toISOString(),
+                  imageUrl: proofUrl,
+                  detectionImageUrl: proofUrl,
+                };
 
-              if (matchedStudent) {
-                detectionData.studentId = matchedStudent.id;
-                detectionData.studentName = matchedStudent.name;
-                detectionData.studentEmail = matchedStudent.email;
-                detectionData.studentStudentId = matchedStudent.studentId;
-                detectionData.matchConfidence = matchedStudent.confidence;
-              }
-
-              await db.collection("detections").add(detectionData);
-
-              const hasSmokingHighConf = result.detections.some(d =>
-                isSmokingLabel(d.label) && smokingConfidenceOk(d)
-              );
-
-              if (matchedStudent && hasSmokingHighConf) {
-                try {
-                  await db.collection("challans").add({
-                    studentId: matchedStudent.id,
-                    studentName: matchedStudent.name,
-                    studentEmail: matchedStudent.email,
-                    amount: 500,
-                    status: 'pending',
-                    description: 'Smoking detected via AI camera system',
-                    location: 'Campus',
-                    detectionImageUrl: result.imageUrl,
-                    createdAt: new Date().toISOString(),
-                    autoGenerated: true,
-                  });
-                  console.log(`[${cameraId}] Auto-generated challan for ${matchedStudent.name}`);
-                } catch (challanErr) {
-                  console.error(`[${cameraId}] Failed to auto-generate challan:`, challanErr);
+                if (matchedStudent) {
+                  detectionData.studentId = matchedStudent.id;
+                  detectionData.studentName = matchedStudent.name;
+                  detectionData.studentEmail = matchedStudent.email;
+                  detectionData.studentStudentId = matchedStudent.studentId;
+                  detectionData.matchConfidence = matchedStudent.confidence;
                 }
+
+                const detRef = await db.collection("detections").add(detectionData);
+                const detectionId = detRef.id;
+
+                const hasSmokingHighConf = result.detections.some(d =>
+                  isSmokingLabel(d.label) && smokingConfidenceOk(d)
+                );
+
+                if (matchedStudent && hasSmokingHighConf) {
+                  try {
+                    await db.collection("challans").add({
+                      studentId: matchedStudent.id,
+                      studentName: matchedStudent.name,
+                      studentEmail: matchedStudent.email,
+                      amount: 500,
+                      status: 'pending',
+                      description: 'Smoking detected via AI camera system',
+                      location: 'Campus',
+                      detectionId,
+                      detectionImageUrl: proofUrl,
+                      imageUrl: proofUrl,
+                      createdAt: new Date().toISOString(),
+                      autoGenerated: true,
+                    });
+                    console.log(`[${cameraId}] Auto-generated challan for ${matchedStudent.name}`);
+                  } catch (challanErr) {
+                    console.error(`[${cameraId}] Failed to auto-generate challan:`, challanErr);
+                  }
+                }
+              } catch (err) {
+                console.error(`[${cameraId}] Failed to save to Firestore:`, err);
               }
-            } catch (err) {
-              console.error(`[${cameraId}] Failed to save to Firestore:`, err);
+            } else {
+              console.warn(`[${cameraId}] Smoking detected but no proof image (Storage save may have failed); skipping Firestore save.`);
             }
           }
 
-          // Emit via socket
-          if (io) {
+          // Emit via socket only when smoking was detected (capture event)
+          if (io && hasSmoking) {
             io.emit('detection', { cameraId, ...result });
           }
 

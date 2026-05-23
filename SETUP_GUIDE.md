@@ -148,6 +148,14 @@ npm run create-admin
 2. Copy the user’s UID.  
 3. In Firestore, create a document in the `users` collection with that UID as the document ID and fields: `email`, `name`, `role` (value `"admin"`), `createdAt`.
 
+**If you already signed up in the app but see "Missing or insufficient permissions"**  
+Your Auth user exists but there is no Firestore document. Run the script with your existing email and password so it creates the `users/{uid}` document (it will not create a new Auth user):
+
+```bash
+cd backend
+node scripts/create-admin-user.js "your@email.com" "YourPassword" "Your Name"
+```
+
 ## 🧪 Testing the System
 
 ### Test 1: Start Backend Server

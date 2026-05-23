@@ -5,8 +5,8 @@ Tune via environment variables for production.
 """
 import os
 
-# YOLO confidence: above this to count as detection (default 0.55 = fewer false positives)
-DETECTION_CONF_THRESHOLD = float(os.environ.get("DETECTION_CONF_THRESHOLD", "0.55"))
+# YOLO confidence: above this to count as detection (default 0.4 = catch more smokers; raise to reduce false positives)
+DETECTION_CONF_THRESHOLD = float(os.environ.get("DETECTION_CONF_THRESHOLD", "0.4"))
 
 # Minimum confidence to auto-generate challan (stricter than display; set in Node too)
 CHALLAN_CONF_THRESHOLD = float(os.environ.get("CHALLAN_CONF_THRESHOLD", "0.60"))
@@ -18,8 +18,8 @@ FACE_MATCH_THRESHOLD = float(os.environ.get("FACE_MATCH_THRESHOLD", "0.55"))
 MIN_FACE_WIDTH = int(os.environ.get("MIN_FACE_WIDTH", "60"))
 MIN_FACE_HEIGHT = int(os.environ.get("MIN_FACE_HEIGHT", "60"))
 
-# Class name keywords (model may use different names)
-SMOKING_KEYWORDS = ("smoker", "smoking", "cigarette", "cigar", "smoke")
+# Class name keywords (model may use different names; add your model's class names if needed)
+SMOKING_KEYWORDS = ("smoker", "smoking", "cigarette", "cigar", "smoke", "cig", "smk", "vape", "tobacco")
 PERSON_KEYWORDS = ("person", "face", "human")
 
 
